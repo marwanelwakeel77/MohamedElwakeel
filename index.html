@@ -498,11 +498,12 @@ function openInvoiceForm(){
 }
 
 
+
 function closeInvoiceForm(){
  $('invoiceView').classList.add('hidden');
- $('detailView').classList.remove('hidden');
  invoiceItems=[];
 }
+
 
 async function saveInvoice(){
  if(!activeSupplier)return;
@@ -561,8 +562,6 @@ async function saveInvoice(){
   activeSupplier=suppliers.find(s=>s.id===supplierId);
 
   $('invoiceView').classList.add('hidden');
-  $('detailView').classList.remove('hidden');
-
   await renderDetails();
 
   toast('تم حفظ الفاتورة رقم '+data.invoice_number+
@@ -620,7 +619,7 @@ async function printPurchaseInvoice(id){
 
   if(error)throw error;
 
-  const {data:items,itemError}=await db
+  const {data:items,error:itemError}=await db
    .from('purchase_invoice_items')
    .select('description,quantity,unit_price,line_total')
    .eq('invoice_id',id);
