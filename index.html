@@ -421,7 +421,7 @@ async function debtReport(){
 let invoiceItems = [];
 
 function addInvoiceItem(){
- invoiceItems.push({description:'',quantity:1,unit_price:0});
+ invoiceItems.push({description:'',quantity:1,unit_price:null});
  renderInvoiceItems();
 }
 
@@ -444,13 +444,13 @@ function renderInvoiceItems(){
       data-invoice-field="quantity" data-index="${i}" value="${item.quantity}">
     </div>
     <div>
-     <label>سعر الوحدة بالجنيه</label>
+     <label>سعر الوحدة بالجنيه (اختياري)</label>
      <input type="number" min="0" step="0.01"
-      data-invoice-field="unit_price" data-index="${i}" value="${item.unit_price}">
+      data-invoice-field="unit_price" data-index="${i}" value="${item.unit_price ?? ''}" placeholder="اختياري">
     </div>
    </div>
    <div class="muted" style="margin-top:10px">
-    إجمالي الصنف: <strong>${money(Number(item.quantity)*Number(item.unit_price))}</strong>
+    إجمالي الصنف: <strong>${money(Number(item.quantity)*(item.unit_price === null || item.unit_price === '' ? 0 : Number(item.unit_price)))}</strong>
    </div>
   </div>
  `).join('');
@@ -465,7 +465,7 @@ function renderInvoiceItems(){
    updateInvoiceTotal();
    const totalLine=input.closest('.panel').querySelector('.muted strong');
    totalLine.textContent=money(
-    Number(invoiceItems[i].quantity)*Number(invoiceItems[i].unit_price)
+    Number(invoiceItems[i].quantity)*(invoiceItems[i].unit_price === null || invoiceItems[i].unit_price === '' ? 0 : Number(invoiceItems[i].unit_price))
    );
   });
  });
@@ -506,7 +506,10 @@ function closeInvoiceForm(){
 
 
 async function saveInvoice(){
- if(!activeSupplier)return;
+ if(!activeSupplier){
+  toast('اختار التاجر أولاً');
+  return;
+ }
 
  if(invoiceItems.length===0){
   toast('أضف صنفاً واحداً على الأقل');
@@ -522,23 +525,20 @@ async function saveInvoice(){
    toast('تأكد من الكميات');
    return;
   }
-  if(!Number.isFinite(Number(item.unit_price))||Number(item.unit_price)<0){
+  if(item.unit_price !== null && item.unit_price !== '' &&
+     (!Number.isFinite(Number(item.unit_price))||Number(item.unit_price)<0)){
    toast('تأكد من أسعار الأصناف');
    return;
   }
  }
 
  const total=updateInvoiceTotal();
- if(total<=0){
-  toast('إجمالي الفاتورة يجب أن يكون أكبر من صفر');
-  return;
- }
+ const hasPrices=invoiceItems.some(item=>item.unit_price!==null && item.unit_price!=='');
+ const confirmText = hasPrices
+  ? 'إجمالي الأسعار المدخلة: '+money(total)+'\nسيتم إضافة هذا المبلغ إلى مديونية '+activeSupplier.name+'.\nهل تريد حفظ الفاتورة؟'
+  : 'سيتم حفظ الأصناف والكميات بدون أسعار، ولن يتغير رصيد التاجر.\nهل تريد المتابعة؟';
 
- if(!confirm(
-  'إجمالي الفاتورة: '+money(total)+
-  '\nسيتم إضافة المبلغ إلى مديونية '+activeSupplier.name+
-  '\nهل تريد حفظ الفاتورة؟'
- ))return;
+ if(!confirm(confirmText))return;
 
  const button=$('saveInvoiceBtn');
  button.disabled=true;
@@ -547,7 +547,7 @@ async function saveInvoice(){
   const items=invoiceItems.map(item=>({
    description:item.description.trim(),
    quantity:Number(item.quantity),
-   unit_price:Number(item.unit_price)
+   unit_price:item.unit_price===null || item.unit_price==='' ? null : Number(item.unit_price)
   }));
 
   const {data,error}=await db.rpc('create_purchase_invoice',{
@@ -565,7 +565,7 @@ async function saveInvoice(){
   await renderDetails();
 
   toast('تم حفظ الفاتورة رقم '+data.invoice_number+
-   ' وإضافة '+money(data.total)+' للمديونية');
+   (Number(data.total)>0?' وإضافة '+money(data.total)+' للمديونية':' بدون تغيير رصيد التاجر'));
 
  }catch(e){
   toast(e.message||'تعذر حفظ الفاتورة');
