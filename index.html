@@ -143,6 +143,34 @@ footer{text-align:center;color:#9aa3b2;font-size:11px;padding:20px}
   </div>
   <div class="panel" id="history"></div>
  </div>
+ 
+<div class="panel no-print">
+  <h2>فواتير المشتريات</h2>
+  <button class="btn gold full" id="newInvoiceBtn">＋ إنشاء فاتورة مشتريات</button>
+  <div id="invoiceHistory" style="margin-top:12px"></div>
+</div>
+
+<div id="invoiceView" class="panel hidden">
+  <button class="back" id="cancelInvoiceBtn">→ رجوع</button>
+  <h2>فاتورة مشتريات جديدة</h2>
+  <div class="muted" id="invoiceSupplierName"></div>
+
+  <div id="invoiceItems"></div>
+
+  <button class="btn light full" id="addInvoiceItemBtn" style="margin-top:12px">
+    ＋ إضافة صنف
+  </button>
+
+  <div class="total" style="margin-top:16px">
+    <div class="muted">إجمالي الفاتورة</div>
+    <div class="total-num" id="invoiceTotal">0 جنيه</div>
+  </div>
+
+  <button class="btn green full" id="saveInvoiceBtn">
+    حفظ الفاتورة وإضافة المبلغ للمديونية
+  </button>
+</div>
+
 </section>
 
 <div id="reportPrint" class="hidden"></div>
