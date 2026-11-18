@@ -339,6 +339,7 @@ async function renderDetails(){
   }).join(''):'<div class="empty">لا توجد حركات مسجلة حتى الآن.</div>';
   $('history').querySelectorAll('[data-correct]').forEach(b=>b.onclick=()=>correctTransaction(b.dataset.correct));
  }catch(e){$('history').textContent=e.message}
+ await renderInvoiceHistory();
 }
 async function transaction(type){
  const amountText=prompt(type==='add'?'اكتب المبلغ المراد إضافته بالجنيه:':'اكتب المبلغ المراد خصمه بالجنيه:');
@@ -417,6 +418,273 @@ async function debtReport(){
  }catch(e){toast(e.message||'تعذر إنشاء التقرير')}
 }
 
+let invoiceItems = [];
+
+function addInvoiceItem(){
+ invoiceItems.push({description:'',quantity:1,unit_price:0});
+ renderInvoiceItems();
+}
+
+function renderInvoiceItems(){
+ const root=$('invoiceItems');
+
+ root.innerHTML=invoiceItems.map((item,i)=>`
+  <div class="panel" style="margin:10px 0">
+   <div class="row" style="align-items:center">
+    <strong style="flex:1">الصنف ${i+1}</strong>
+    <button class="small-btn red" data-remove-item="${i}">حذف الصنف</button>
+   </div>
+   <label>اسم الصنف أو الوصف</label>
+   <input data-invoice-field="description" data-index="${i}"
+    value="${esc(item.description)}" placeholder="مثال: رولمان بلي 6205">
+   <div class="row">
+    <div>
+     <label>الكمية</label>
+     <input type="number" min="0.001" step="0.001"
+      data-invoice-field="quantity" data-index="${i}" value="${item.quantity}">
+    </div>
+    <div>
+     <label>سعر الوحدة بالجنيه</label>
+     <input type="number" min="0" step="0.01"
+      data-invoice-field="unit_price" data-index="${i}" value="${item.unit_price}">
+    </div>
+   </div>
+   <div class="muted" style="margin-top:10px">
+    إجمالي الصنف: <strong>${money(Number(item.quantity)*Number(item.unit_price))}</strong>
+   </div>
+  </div>
+ `).join('');
+
+ root.querySelectorAll('[data-invoice-field]').forEach(input=>{
+  input.addEventListener('input',()=>{
+   const i=Number(input.dataset.index);
+   const field=input.dataset.invoiceField;
+   invoiceItems[i][field]=field==='description'
+    ?input.value
+    :Number(input.value);
+   updateInvoiceTotal();
+   const totalLine=input.closest('.panel').querySelector('.muted strong');
+   totalLine.textContent=money(
+    Number(invoiceItems[i].quantity)*Number(invoiceItems[i].unit_price)
+   );
+  });
+ });
+
+ root.querySelectorAll('[data-remove-item]').forEach(button=>{
+  button.onclick=()=>{
+   invoiceItems.splice(Number(button.dataset.removeItem),1);
+   renderInvoiceItems();
+  };
+ });
+
+ updateInvoiceTotal();
+}
+
+function updateInvoiceTotal(){
+ const total=invoiceItems.reduce((sum,item)=>
+  sum+(Number(item.quantity)||0)*(Number(item.unit_price)||0),0);
+ $('invoiceTotal').textContent=money(total);
+ return Math.round((total+Number.EPSILON)*100)/100;
+}
+
+function openInvoiceForm(){
+ if(!activeSupplier)return;
+ invoiceItems=[];
+ $('invoiceSupplierName').textContent='التاجر: '+activeSupplier.name;
+ $('detailView').classList.add('hidden');
+ $('invoiceView').classList.remove('hidden');
+ addInvoiceItem();
+}
+
+function closeInvoiceForm(){
+ $('invoiceView').classList.add('hidden');
+ $('detailView').classList.remove('hidden');
+ invoiceItems=[];
+}
+
+async function saveInvoice(){
+ if(!activeSupplier)return;
+
+ if(invoiceItems.length===0){
+  toast('أضف صنفاً واحداً على الأقل');
+  return;
+ }
+
+ for(const item of invoiceItems){
+  if(!item.description.trim()){
+   toast('اكتب اسم كل صنف');
+   return;
+  }
+  if(!Number.isFinite(Number(item.quantity))||Number(item.quantity)<=0){
+   toast('تأكد من الكميات');
+   return;
+  }
+  if(!Number.isFinite(Number(item.unit_price))||Number(item.unit_price)<0){
+   toast('تأكد من أسعار الأصناف');
+   return;
+  }
+ }
+
+ const total=updateInvoiceTotal();
+ if(total<=0){
+  toast('إجمالي الفاتورة يجب أن يكون أكبر من صفر');
+  return;
+ }
+
+ if(!confirm(
+  'إجمالي الفاتورة: '+money(total)+
+  '\nسيتم إضافة المبلغ إلى مديونية '+activeSupplier.name+
+  '\nهل تريد حفظ الفاتورة؟'
+ ))return;
+
+ const button=$('saveInvoiceBtn');
+ button.disabled=true;
+
+ try{
+  const items=invoiceItems.map(item=>({
+   description:item.description.trim(),
+   quantity:Number(item.quantity),
+   unit_price:Number(item.unit_price)
+  }));
+
+  const {data,error}=await db.rpc('create_purchase_invoice',{
+   p_supplier_id:activeSupplier.id,
+   p_items:items
+  });
+
+  if(error)throw error;
+
+  const supplierId=activeSupplier.id;
+  await loadSuppliers();
+  activeSupplier=suppliers.find(s=>s.id===supplierId);
+
+  $('invoiceView').classList.add('hidden');
+  $('detailView').classList.remove('hidden');
+
+  await renderDetails();
+
+  toast('تم حفظ الفاتورة رقم '+data.invoice_number+
+   ' وإضافة '+money(data.total)+' للمديونية');
+
+ }catch(e){
+  toast(e.message||'تعذر حفظ الفاتورة');
+ }finally{
+  button.disabled=false;
+ }
+}
+
+async function renderInvoiceHistory(){
+ const root=$('invoiceHistory');
+ root.innerHTML='<div class="muted">جاري تحميل الفواتير...</div>';
+
+ try{
+  const {data,error}=await db
+   .from('purchase_invoices')
+   .select('id,invoice_number,invoice_date,total')
+   .eq('supplier_id',activeSupplier.id)
+   .order('invoice_date',{ascending:false});
+
+  if(error)throw error;
+
+  root.innerHTML=data.length?data.map(invoice=>`
+   <div class="history-item">
+    <div style="flex:1">
+     <b>فاتورة رقم ${invoice.invoice_number}</b>
+     <small>${new Date(invoice.invoice_date).toLocaleString('ar-EG')}</small>
+    </div>
+    <div style="text-align:left">
+     <strong>${money(invoice.total)}</strong><br>
+     <button class="small-btn light" data-view-invoice="${invoice.id}">عرض وطباعة</button>
+    </div>
+   </div>
+  `).join(''):'<div class="empty">لا توجد فواتير مشتريات لهذا التاجر.</div>';
+
+  root.querySelectorAll('[data-view-invoice]').forEach(button=>{
+   button.onclick=()=>printPurchaseInvoice(button.dataset.viewInvoice);
+  });
+
+ }catch(e){
+  root.innerHTML='<div class="muted">تعذر تحميل الفواتير: '+esc(e.message)+'</div>';
+ }
+}
+
+async function printPurchaseInvoice(id){
+ try{
+  const {data:invoice,error}=await db
+   .from('purchase_invoices')
+   .select('id,invoice_number,invoice_date,total,supplier_id')
+   .eq('id',id)
+   .single();
+
+  if(error)throw error;
+
+  const {data:items,itemError}=await db
+   .from('purchase_invoice_items')
+   .select('description,quantity,unit_price,line_total')
+   .eq('invoice_id',id);
+
+  if(itemError)throw itemError;
+
+  const rows=items.map((item,i)=>`
+   <tr>
+    <td>${i+1}</td>
+    <td>${esc(item.description)}</td>
+    <td>${Number(item.quantity)}</td>
+    <td>${money(item.unit_price)}</td>
+    <td>${money(item.line_total)}</td>
+   </tr>
+  `).join('');
+
+  const w=window.open('','_blank');
+  if(!w){
+   toast('اسمح بفتح النوافذ المنبثقة للطباعة');
+   return;
+  }
+
+  w.document.write(`
+   <!doctype html>
+   <html lang="ar" dir="rtl">
+   <head>
+    <meta charset="utf-8">
+    <title>فاتورة مشتريات ${invoice.invoice_number}</title>
+    <style>
+     body{font-family:Arial,Tahoma;padding:25px;color:#172033}
+     h2{text-align:center}
+     .info{line-height:2;margin:25px 0}
+     table{width:100%;border-collapse:collapse}
+     th,td{border:1px solid #aaa;padding:10px;text-align:center}
+     th{background:#eee}
+     .total{font-size:22px;font-weight:bold;text-align:left;margin-top:25px}
+    </style>
+   </head>
+   <body>
+    <h2>الوكيل لتجارة رولمان البلي ومستلزمات المصانع</h2>
+    <h3 style="text-align:center">فاتورة مشتريات</h3>
+    <div class="info">
+     <b>التاجر:</b> ${esc(activeSupplier.name)}<br>
+     <b>رقم الفاتورة:</b> ${invoice.invoice_number}<br>
+     <b>التاريخ:</b> ${new Date(invoice.invoice_date).toLocaleString('ar-EG')}
+    </div>
+    <table>
+     <thead><tr>
+      <th>م</th><th>الصنف</th><th>الكمية</th>
+      <th>سعر الوحدة</th><th>الإجمالي</th>
+     </tr></thead>
+     <tbody>${rows}</tbody>
+    </table>
+    <div class="total">الإجمالي: ${money(invoice.total)}</div>
+    <script>window.onload=()=>window.print();<\/script>
+   </body>
+   </html>
+  `);
+
+  w.document.close();
+
+ }catch(e){
+  toast(e.message||'تعذر فتح الفاتورة');
+ }
+}
+
 $('loginBtn').onclick=authAction;
 $('logoutBtn').onclick=async()=>{await db.auth.signOut();currentUser=null;showApp(false);toast('تم تسجيل الخروج')};
 $('addSupplierBtn').onclick=addSupplier;
@@ -431,6 +699,12 @@ $('subtractMoneyBtn').onclick=()=>transaction('subtract');
 $('backupBtn').onclick=backup;
 $('reportBtn').onclick=debtReport;
 $('printAccountBtn').onclick=()=>window.print();
+ 
+$('newInvoiceBtn').onclick=openInvoiceForm;
+$('addInvoiceItemBtn').onclick=addInvoiceItem;
+$('cancelInvoiceBtn').onclick=closeInvoiceForm;
+$('saveInvoiceBtn').onclick=saveInvoice;
+
 
 db.auth.getSession().then(async({data,error})=>{
  if(error)return;
