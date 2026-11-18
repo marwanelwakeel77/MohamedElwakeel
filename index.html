@@ -121,7 +121,8 @@ footer{text-align:center;color:#9aa3b2;font-size:11px;padding:20px}
    <div class="muted">حساب التاجر</div>
    <div class="row" style="align-items:center">
     <h2 id="detailName" style="flex:1"></h2>
-    <button class="small-btn light no-print" id="renameBtn">تعديل الاسم ✏️</button>
+<button class="small-btn light no-print" id="renameBtn">تعديل الاسم ✏️</button>
+<button class="small-btn red no-print" id="deleteSupplierBtn">حذف العميل 🗑️</button>
    </div>
    <div class="muted">الرصيد المستحق</div>
    <div class="balance" id="detailBalance">0 جنيه</div>
@@ -239,6 +240,45 @@ async function renameSupplier(){
   toast('تم تعديل اسم التاجر');
  }catch(e){toast(e.message||'تعذر تعديل الاسم')}
 }
+ 
+async function deleteSupplier(){
+ if(!activeSupplier)return;
+
+ const name=activeSupplier.name;
+ const balance=Number(activeSupplier.balance||0);
+
+ const confirmed=confirm(
+  'تحذير: حذف نهائي!\n\n'+
+  'العميل: '+name+'\n'+
+  'الرصيد الحالي: '+money(balance)+'\n\n'+
+  'سيتم حذف العميل وجميع حركاته المالية نهائياً.\n'+
+  'هل أنت متأكد؟'
+ );
+
+ if(!confirmed)return;
+
+ const secondConfirm=confirm('تأكيد أخير: هل تريد حذف '+name+' نهائياً؟');
+ if(!secondConfirm)return;
+
+ try{
+  const {data,error}=await db.rpc('delete_supplier',{
+   p_supplier_id:activeSupplier.id
+  });
+
+  if(error)throw error;
+
+  activeSupplier=null;
+  await loadSuppliers();
+
+  $('detailView').classList.add('hidden');
+  $('homeView').classList.remove('hidden');
+
+  toast('تم حذف العميل وجميع حركاته بنجاح');
+ }catch(e){
+  toast(e.message||'تعذر حذف العميل');
+ }
+}
+
 async function openSupplier(id){
  activeSupplier=suppliers.find(s=>s.id===id);
  if(!activeSupplier)return;
@@ -353,6 +393,7 @@ $('loginBtn').onclick=authAction;
 $('logoutBtn').onclick=async()=>{await db.auth.signOut();currentUser=null;showApp(false);toast('تم تسجيل الخروج')};
 $('addSupplierBtn').onclick=addSupplier;
 $('renameBtn').onclick=renameSupplier;
+ $('deleteSupplierBtn').onclick=deleteSupplier;
 $('refreshBtn').onclick=async()=>{try{await loadSuppliers();toast('تم تحديث البيانات')}catch(e){toast(e.message)}};
 $('search').oninput=renderHome;
 $('sortBtn').onclick=()=>{sortHigh=!sortHigh;renderHome()};
