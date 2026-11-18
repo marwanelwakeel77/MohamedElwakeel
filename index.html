@@ -487,14 +487,16 @@ function updateInvoiceTotal(){
  return Math.round((total+Number.EPSILON)*100)/100;
 }
 
+
 function openInvoiceForm(){
  if(!activeSupplier)return;
  invoiceItems=[];
  $('invoiceSupplierName').textContent='التاجر: '+activeSupplier.name;
- $('detailView').classList.add('hidden');
  $('invoiceView').classList.remove('hidden');
  addInvoiceItem();
+ $('invoiceView').scrollIntoView({behavior:'smooth',block:'start'});
 }
+
 
 function closeInvoiceForm(){
  $('invoiceView').classList.add('hidden');
