@@ -610,6 +610,18 @@ async function renderInvoiceHistory(){
 }
 
 async function printPurchaseInvoice(id){
+ // Open the print tab immediately during the button click.
+ // Mobile browsers may block window.open if it happens after an await.
+ const w=window.open('about:blank','_blank');
+
+ if(!w){
+  toast('المتصفح منع فتح الفاتورة. اسمح بالنوافذ المنبثقة ثم جرّب مرة أخرى.');
+  return;
+ }
+
+ w.document.write('<html lang="ar" dir="rtl"><body style="font-family:Arial;padding:20px">جاري تحميل الفاتورة...</body></html>');
+ w.document.close();
+
  try{
   const {data:invoice,error}=await db
    .from('purchase_invoices')
@@ -626,43 +638,44 @@ async function printPurchaseInvoice(id){
 
   if(itemError)throw itemError;
 
-  const rows=items.map((item,i)=>`
+  const supplierName=activeSupplier && activeSupplier.id===invoice.supplier_id
+   ? activeSupplier.name
+   : 'التاجر';
+
+  const rows=(items||[]).map((item,i)=>`
    <tr>
     <td>${i+1}</td>
     <td>${esc(item.description)}</td>
     <td>${Number(item.quantity)}</td>
-    <td>${money(item.unit_price)}</td>
-    <td>${money(item.line_total)}</td>
+    <td>${item.unit_price===null?'غير محدد':money(item.unit_price)}</td>
+    <td>${item.line_total===null?'غير محدد':money(item.line_total)}</td>
    </tr>
   `).join('');
 
-  const w=window.open('','_blank');
-  if(!w){
-   toast('اسمح بفتح النوافذ المنبثقة للطباعة');
-   return;
-  }
-
+  w.document.open();
   w.document.write(`
    <!doctype html>
    <html lang="ar" dir="rtl">
    <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>فاتورة مشتريات ${invoice.invoice_number}</title>
     <style>
-     body{font-family:Arial,Tahoma;padding:25px;color:#172033}
-     h2{text-align:center}
+     body{font-family:Arial,Tahoma,sans-serif;padding:25px;color:#172033}
+     h2,h3{text-align:center}
      .info{line-height:2;margin:25px 0}
      table{width:100%;border-collapse:collapse}
      th,td{border:1px solid #aaa;padding:10px;text-align:center}
      th{background:#eee}
      .total{font-size:22px;font-weight:bold;text-align:left;margin-top:25px}
+     @media print{body{padding:8mm}}
     </style>
    </head>
    <body>
     <h2>الوكيل لتجارة رولمان البلي ومستلزمات المصانع</h2>
-    <h3 style="text-align:center">فاتورة مشتريات</h3>
+    <h3>فاتورة مشتريات</h3>
     <div class="info">
-     <b>التاجر:</b> ${esc(activeSupplier.name)}<br>
+     <b>التاجر:</b> ${esc(supplierName)}<br>
      <b>رقم الفاتورة:</b> ${invoice.invoice_number}<br>
      <b>التاريخ:</b> ${new Date(invoice.invoice_date).toLocaleString('ar-EG')}
     </div>
@@ -673,15 +686,20 @@ async function printPurchaseInvoice(id){
      </tr></thead>
      <tbody>${rows}</tbody>
     </table>
-    <div class="total">الإجمالي: ${money(invoice.total)}</div>
-    <script>window.onload=()=>window.print();<\/script>
+    <div class="total">إجمالي الأسعار المسجلة: ${money(invoice.total)}</div>
+    <script>
+      window.onload=function(){setTimeout(function(){window.print();},300);};
+    <\/script>
    </body>
    </html>
   `);
-
   w.document.close();
+  w.focus();
 
  }catch(e){
+  w.document.open();
+  w.document.write('<html lang="ar" dir="rtl"><body style="font-family:Arial;padding:20px">تعذر تحميل الفاتورة: '+esc(e.message)+'</body></html>');
+  w.document.close();
   toast(e.message||'تعذر فتح الفاتورة');
  }
 }
